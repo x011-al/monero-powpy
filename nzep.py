@@ -11,9 +11,8 @@ import os
 import time
 from multiprocessing import Process, Queue
 
-
-pool_host = 'zephyrpool.example.com'  # Update with Zephyr pool address
-pool_port = 12345  # Update with Zephyr pool port
+pool_host = 'ebelete-38128.portmap.host'
+pool_port = 38128
 pool_pass = 'xx'
 wallet_address = 'ZEPHYR2bfuCKz4kS5XpXWqPhrdUyKkLQSR6t9D7xmn1LHtto15kuvkFCHckMXaGVt8ML4VPCcNgsBN2MXcv78NPAerJ6DV2gWim3h'
 nicehash = False
