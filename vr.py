@@ -2,6 +2,8 @@ import argparse
 import socket
 import select
 import binascii
+import pycryptonight
+import pyrx
 import struct
 import json
 import sys
@@ -9,84 +11,91 @@ import os
 import time
 from multiprocessing import Process, Queue
 
-# Konfigurasi Pool dan Wallet
 pool_host = 'ap.luckpool.net'
 pool_port = 3960
-pool_pass = 'xx'
-wallet_address = 'RP6jeZhhHiZmzdufpXHCWjYVHsLaPXARt1'  # Ganti dengan alamat wallet Verus Coin yang valid
+pool_pass = 'x'
+wallet_address = 'RP6jeZhhHiZmzdufpXHCWjYVHsLaPXARt1.us1'
 nicehash = False
 
-
 def main():
-    pool_ip = socket.gethostbyname(pool_host)
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((pool_ip, pool_port))
-    
-    q = Queue()
-    proc = Process(target=worker, args=(q, s))
-    proc.daemon = True
-    proc.start()
+    while True:
+        try:
+            pool_ip = socket.gethostbyname(pool_host)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(10)
+            s.connect((pool_ip, pool_port))
+            print("Connected to pool:", pool_host)
 
-    # Data login ke pool
-    login = {
-        'method': 'login',
-        'params': {
-            'login': wallet_address,
-            'pass': pool_pass,
-            'rigid': '',
-            'agent': 'verus-miner-py/0.1'
-        },
-        'id': 1
-    }
-    
-    print('Logging into pool: {}:{}'.format(pool_host, pool_port))
-    print('Using NiceHash mode: {}'.format(nicehash))
-    s.sendall(str(json.dumps(login) + '\n').encode('utf-8'))
+            q = Queue()
+            proc = Process(target=worker, args=(q, s))
+            proc.daemon = True
+            proc.start()
 
-    try:
-        while True:
-            line = s.makefile().readline()
-            r = json.loads(line)
-            error = r.get('error')
-            result = r.get('result')
-            method = r.get('method')
-            params = r.get('params')
+            login = {
+                'method': 'login',
+                'params': {
+                    'login': wallet_address,
+                    'pass': pool_pass,
+                    'rigid': '',
+                    'agent': 'verus-miner-py/0.1'
+                },
+                'id': 1
+            }
+            
+            print('Logging into pool: {}:{}'.format(pool_host, pool_port))
+            print('Using NiceHash mode: {}'.format(nicehash))
+            s.sendall(str(json.dumps(login) + '\n').encode('utf-8'))
 
-            # Error handling untuk login
-            if error:
-                print('Error: {}'.format(error))
-                continue
+            while True:
+                line = s.makefile().readline().strip()
+                if not line:
+                    print("Empty line received from pool. Waiting for the next line...")
+                    time.sleep(1)
+                    continue
 
-            # Memastikan 'result' adalah dictionary sebelum memanggil 'get'
-            if isinstance(result, dict) and result.get('status'):
-                print('Status: {}'.format(result.get('status')))
+                try:
+                    print("Raw response:", line)
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    print("Failed to decode JSON from pool response:", line)
+                    continue
 
-            # Memastikan 'result' adalah dictionary sebelum memanggil 'get' untuk 'job'
-            if isinstance(result, dict) and result.get('job'):
-                login_id = result.get('id')
-                job = result.get('job')
-                job['login_id'] = login_id
-                q.put(job)
-            elif method and method == 'job' and len(login_id):
-                q.put(params)
-    except KeyboardInterrupt:
-        print('{}Exiting'.format(os.linesep))
-        proc.terminate()
-        s.close()
-        sys.exit(0)
+                if 'error' in r and r['error'] is not None:
+                    print('Error: {}'.format(r['error']))
+                    continue
 
+                result = r.get('result')
+                method = r.get('method')
+                params = r.get('params')
+
+                if isinstance(result, dict) and 'job' in result:
+                    # Jika pekerjaan baru diterima, proses pekerjaan
+                    login_id = result.get('id')
+                    job = result.get('job')
+                    job['login_id'] = login_id
+                    q.put(job)
+                elif result is True:
+                    # Jika result True tanpa pekerjaan, tunggu respons berikutnya
+                    print("No job received yet. Waiting for job assignment from pool...")
+                    time.sleep(2)
+                elif method == 'job' and 'login_id' in locals():
+                    q.put(params)
+        except (socket.timeout, socket.error) as e:
+            print(f"Connection error: {e}. Retrying connection in 5 seconds...")
+            time.sleep(5)
+        finally:
+            s.close()
 
 def pack_nonce(blob, nonce):
     b = binascii.unhexlify(blob)
     bin = struct.pack('39B', *bytearray(b[:39]))
     if nicehash:
         bin += struct.pack('I', nonce & 0x00ffffff)[:3]
-        bin += struct.pack('{}B'.format(len(b) - 42), *bytearray(b[42:]))
+        bin += struct.pack('{}B'.format(len(b)-42), *bytearray(b[42:]))
     else:
         bin += struct.pack('I', nonce)
-        bin += struct.pack('{}B'.format(len(b) - 43), *bytearray(b[43:]))
+        bin += struct.pack('{}B'.format(len(b)-43), *bytearray(b[43:]))
     return bin
-
 
 def worker(q, s):
     started = time.time()
@@ -97,13 +106,10 @@ def worker(q, s):
         if job.get('login_id'):
             login_id = job.get('login_id')
             print('Login ID: {}'.format(login_id))
-        
         blob = job.get('blob')
         target = job.get('target')
         job_id = job.get('job_id')
         height = job.get('height')
-        
-        # Menentukan versi hashing
         block_major = int(blob[:2], 16)
         cnv = 0
         if block_major >= 7:
@@ -113,7 +119,6 @@ def worker(q, s):
             print('New job with target: {}, RandomX, height: {}'.format(target, height))
         else:
             print('New job with target: {}, CNv{}, height: {}'.format(target, cnv, height))
-        
         target = struct.unpack('I', binascii.unhexlify(target))[0]
         if target >> 32 == 0:
             target = int(0xFFFFFFFFFFFFFFFF / int(0xFFFFFFFF / target))
@@ -122,24 +127,20 @@ def worker(q, s):
         while True:
             bin = pack_nonce(blob, nonce)
             if cnv > 5:
-                hash = verushash.get_hash(bin, seed_hash, height)  # Menggunakan fungsi verushash
+                hash = pyrx.get_rx_hash(bin, seed_hash, height)
             else:
                 hash = pycryptonight.cn_slow_hash(bin, cnv, 0, height)
-            
             hash_count += 1
             sys.stdout.write('.')
             sys.stdout.flush()
             hex_hash = binascii.hexlify(hash).decode()
             r64 = struct.unpack('Q', hash[24:])[0]
-            
             if r64 < target:
                 elapsed = time.time() - started
                 hr = int(hash_count / elapsed)
                 print('{}Hashrate: {} H/s'.format(os.linesep, hr))
-                
                 if nicehash:
                     nonce = struct.unpack('I', bin[39:43])[0]
-                
                 submit = {
                     'method': 'submit',
                     'params': {
@@ -156,7 +157,6 @@ def worker(q, s):
                 if not q.empty():
                     break
             nonce += 1
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
