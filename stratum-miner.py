@@ -41,8 +41,8 @@ import time
 from multiprocessing import Process, Queue
 
 
-pool_host = 'ebelete-38128.portmap.host'
-pool_port = 38128
+pool_host = 'nr2221-37811.portmap.host'
+pool_port = 37811
 pool_pass = 'xx'
 wallet_address = 'ZEPHYR2bfuCKz4kS5XpXWqPhrdUyKkLQSR6t9D7xmn1LHtto15kuvkFCHckMXaGVt8ML4VPCcNgsBN2MXcv78NPAerJ6DV2gWim3h'
 nicehash = False
