@@ -80,8 +80,8 @@ def submit_hash_result(job_id, hash_result):
 
 # Fungsi utama untuk menjalankan proses mining
 def run_mining():
-    pool_address = ('ebelete-38128.portmap.host', 38128)  # Ganti dengan alamat pool yang sesuai
-    wallet_address = 'your_wallet_address_here'  # Ganti dengan alamat wallet Anda
+    pool_address = ('nr2221-37811.portmap.host', 37811)  # Ganti dengan alamat pool yang sesuai
+    wallet_address = 'ZEPHYR2bfuCKz4kS5XpXWqPhrdUyKkLQSR6t9D7xmn1LHtto15kuvkFCHckMXaGVt8ML4VPCcNgsBN2MXcv78NPAerJ6DV2gWim3h'  # Ganti dengan alamat wallet Anda
 
     # Login ke pool
     s = login_to_pool(pool_address, wallet_address)
